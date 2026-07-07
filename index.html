@@ -232,14 +232,17 @@ function seedCentroids(vs,k){ var chosen=[vs[0].slice()];
       if(dmin>bd){ bd=dmin; bi=i; } }
     chosen.push(vs[bi].slice()); } return chosen; }
 function energy(vs,cen,as){ var e=0; for(var i=0;i<vs.length;i++) e+=dist2(vs[i],cen[as[i]]); return e; }
+function nearest(v,cen){ var bj=0,bd=Infinity; for(var j=0;j<cen.length;j++){ var d=dist2(v,cen[j]); if(d<bd){bd=d;bj=j;} } return bj; }
 function centrifuge(vs,k,maxSpins){ maxSpins=maxSpins||25;
-  var cen=seedCentroids(vs,k), as=vs.map(function(){return 0;}), hist=[];
+  var cen=seedCentroids(vs,k);
+  var as=vs.map(function(v){ return nearest(v,cen); });       // seed assignment
+  var hist=[r4(energy(vs,cen,as)*1e2)/1e2];                    // energy at the seeds
   for(var sp=0;sp<maxSpins;sp++){
-    var na=vs.map(function(v){ var bj=0,bd=Infinity; for(var j=0;j<k;j++){ var d=dist2(v,cen[j]); if(d<bd){bd=d;bj=j;} } return bj; });
-    for(var j=0;j<k;j++){ var mem=[]; for(var i=0;i<vs.length;i++) if(na[i]===j) mem.push(vs[i]);
+    for(var j=0;j<k;j++){ var mem=[]; for(var i=0;i<vs.length;i++) if(as[i]===j) mem.push(vs[i]);
       if(mem.length){ cen[j]=[]; for(var d=0;d<D;d++){ var s=0; mem.forEach(function(m){s+=m[d];}); cen[j].push(s/mem.length); } } }
+    var na=vs.map(function(v){ return nearest(v,cen); });       // like-to-like
     hist.push(r4(energy(vs,cen,na)*1e2)/1e2);
-    if(JSON.stringify(na)===JSON.stringify(as)){ as=na; break; }
+    if(JSON.stringify(na)===JSON.stringify(as)) break;
     as=na;
   }
   return {intents:cen.map(function(c){return c.map(r4);}), assign:as, history:hist};

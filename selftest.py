@@ -55,21 +55,32 @@ check(r["n_context"] == 9 and r["k_intents"] == 3 and len(r["intents"]) == 3,
       "the silo compresses 9 context tokens to 3 intents")
 check(r["compression"] == 3.0, f"compression ratio reported (got {r['compression']}x)")
 
-# 5. Edge cases: K == N (every token its own intent) still converges and is stable.
-vv = [embed(t) for t in ["a", "b", "c"]]
+# 5. Edge case: K == N with DISTINCT embeddings -> each token its own cluster.
+#    (embeddings collide when tokens share _tok_salt, so this is a property of
+#    separable inputs, not of K==N in general.)
+import math
+vv = [embed(t) for t in ["a", "b", "c"]]          # three distinct salts
 ci, ca, ch = centrifuge(vv, 3)
-check(len(set(ca)) == 3, "K==N -> each token gets its own cluster")
+check(len(set(ca)) == 3, "K==N with distinct embeddings -> each its own cluster")
 
-# 6. The transformer floor runs and pools to a real ranked prediction.
-check(r["prediction"] in ("the", "cat", "sat", "on", "mat", "run", "sky", "map"),
-      "the transformer floor emits a real vocab prediction")
-check(r["logits"][0][1] >= r["logits"][-1][1], "logits are ranked (top >= bottom)")
+# 5b. K > N is clamped to N (no phantom intents, no sub-1.0 'compression').
+clamped = run_silo(["cat", "sat"], k=5)
+check(clamped["k_intents"] == 2 and len(clamped["intents"]) == 2 and clamped["compression"] >= 1.0,
+      "K>N is clamped to N (no phantom intents; compression >= 1)")
 
-# 7. End to end: energy actually fell for a messy input (the centrifuge did work).
-messy = run_silo(["cat", "sky", "cat", "mat", "sky", "run", "sky", "cat"], k=3)
-check(messy["energy_history"][0] >= messy["energy_history"][-1],
-      "end-to-end: the centrifuge lowered (or held) the energy")
-check(messy["spins"] >= 1 and messy["prediction"], "end-to-end silo produced a prediction")
+# 6. The transformer floor runs and pools to a REAL prediction -- finite,
+#    full-vocab, and not all-identical (a non-vacuous check that it computed).
+check(all(math.isfinite(l[1]) for l in r["logits"]) and len(r["logits"]) == 8,
+      "the transformer emits finite logits over the full 8-token vocab")
+check(any(l[1] != r["logits"][0][1] for l in r["logits"]),
+      "the logits are differentiated (the transformer did real work, not a constant)")
+check(r["prediction"] == r["logits"][0][0], "the prediction is the top logit")
+
+# 7. End to end: the centrifuge STRICTLY lowered the energy (seed -> settled).
+messy = run_silo(["cat", "cat", "sat", "sky", "sky", "sky", "run", "mat", "mat", "on"], k=3)
+check(messy["energy_history"][0] > messy["energy_history"][-1],
+      f"end-to-end: the centrifuge strictly lowered the energy ({messy['energy_history']})")
+check(messy["prediction"] and len(messy["intents"]) == 3, "end-to-end silo produced 3 intents + a prediction")
 
 print("\n" + ("SOME CHECKS FAILED" if fails else "all transformer-silo checks passed"))
 raise SystemExit(1 if fails else 0)

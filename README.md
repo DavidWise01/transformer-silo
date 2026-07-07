@@ -11,7 +11,7 @@ architecture idea — and it really does each step.
      <\o/>  spin  — assign each token to its nearest centroid, recompute
             centroids, repeat. "Centrifugal, like-to-like" = convergent
             similarity clustering: similar vectors settle into the same bin and
-            the intra-cluster energy falls every spin until nothing moves.
+            the intra-cluster energy is non-increasing every spin until nothing moves.
      >>>>   out   — K intent summaries (the centroids): a real N→K compression.
 
   FLOOR 2 · A NORMAL TRANSFORMER

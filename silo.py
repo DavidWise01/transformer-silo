@@ -8,8 +8,8 @@ result.
      <\\o/>  spin: assign each token to its nearest centroid, recompute centroids,
              repeat. "Centrifugal, like-to-like" = convergent similarity
              clustering (Lloyd's algorithm): similar vectors settle into the same
-             bin, and the total intra-cluster energy falls every spin until it
-             stops moving. Output: K INTENT summaries (the centroids) -- a
+             bin, and the total intra-cluster energy is non-increasing every spin
+             until it settles. Output: K INTENT summaries (the centroids) -- a
              genuine compression of N context vectors down to K.
      >>>>   spit the K intents upstairs.
 
@@ -63,31 +63,33 @@ def energy(vectors, centroids, assign):
     return sum(dist2(vectors[i], centroids[assign[i]]) for i in range(len(vectors)))
 
 
+def _nearest(v, centroids):
+    best_j, best_d = 0, float("inf")
+    for j, c in enumerate(centroids):
+        d = dist2(v, c)
+        if d < best_d:
+            best_d, best_j = d, j
+    return best_j
+
+
 def centrifuge(vectors, k, max_spins=25):
     """Spin the centrifuge: assign -> recenter -> repeat until it settles.
-    Returns (centroids, assignments, spin_history) where spin_history is the
-    total intra-cluster energy after each spin (monotonically non-increasing)."""
+    Returns (intents, assignments, energy_history). history[0] is the energy of
+    the initial (seed) clustering; each later entry is the energy after a
+    recenter+reassign spin. It is monotonically non-increasing and settles -- so
+    the drop from history[0] to history[-1] is the centrifuge's actual work."""
     centroids = _seed_centroids(vectors, k)
-    assign = [0] * len(vectors)
-    history = []
+    assign = [_nearest(v, centroids) for v in vectors]      # seed assignment
+    history = [round(energy(vectors, centroids, assign), 6)]  # energy at the seeds
     for _ in range(max_spins):
-        # assign each token to its nearest centroid (like-to-like)
-        new_assign = []
-        for v in vectors:
-            best_j, best_d = 0, float("inf")
-            for j, c in enumerate(centroids):
-                d = dist2(v, c)
-                if d < best_d:
-                    best_d, best_j = d, j
-            new_assign.append(best_j)
         # recompute centroids as the mean of their members (empty -> keep)
         for j in range(k):
-            members = [vectors[i] for i in range(len(vectors)) if new_assign[i] == j]
+            members = [vectors[i] for i in range(len(vectors)) if assign[i] == j]
             if members:
                 centroids[j] = [sum(m[d] for m in members) / len(members) for d in range(D)]
+        new_assign = [_nearest(v, centroids) for v in vectors]  # like-to-like
         history.append(round(energy(vectors, centroids, new_assign), 6))
         if new_assign == assign:          # settled -- no token changed bin
-            assign = new_assign
             break
         assign = new_assign
     intents = [[round(x, 4) for x in c] for c in centroids]
@@ -153,6 +155,7 @@ def readout(pooled):
 def run_silo(context_tokens, k=3):
     """context_tokens: the user's preloaded context (list of words)."""
     vectors = [embed(t) for t in context_tokens]
+    k = max(1, min(k, len(vectors)))                      # can't have more intents than tokens
     intents, assign, history = centrifuge(vectors, k)     # FLOOR 1
     out = transformer(intents)                            # FLOOR 2
     pooled = [sum(o[d] for o in out) / len(out) for d in range(D)]  # mean-pool the intents
